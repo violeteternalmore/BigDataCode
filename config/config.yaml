@@ -1,0 +1,22 @@
+oss:
+  bucket: my-price-index
+  endpoint: oss-cn-hangzhou-internal.aliyuncs.com   # 同地域内网endpoint，免流量费
+  bronze_prefix: bronze/                            # 原始数据前缀
+  output_prefix: output/                            # 折线图/ZIP 前缀
+
+clickhouse:
+  host: 127.0.0.1     # 在 ECS 本机跑就是 127.0.0.1
+  port: 8123
+  database: price
+
+data:
+  start: "2025-05-01"
+  end:   "2028-05-31"
+  n_products: 300     # 想压测就调大到几万
+  categories: [1101010001, 1101010002, 1101010003, 1101010004, 1101010005]
+  seed: 42
+
+index:
+  calculator: fisher      # fisher | jevons（无销量时降级）
+  max_daily_change: 0.5   # 同比单日跳变>50个百分点 → 熔断
+  # 采用「年度费雪」(本期直接对去年同期)，无需固定基期，故不配 base_month

@@ -1,0 +1,16 @@
+name: daily-index
+on:
+  schedule:
+    - cron: "0 17 * * *"   # UTC 17:00 = 北京时间 01:00
+  workflow_dispatch:        # 支持手动触发
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger pipeline on ECS via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: root
+          key: ${{ secrets.ECS_SSH_KEY }}
+          script: cd price-index && git pull && python3 -m src.main
