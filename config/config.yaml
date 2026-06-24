@@ -1,6 +1,6 @@
 oss:
-  bucket: my-price-index
-  endpoint: oss-cn-hangzhou-internal.aliyuncs.com   # 同地域内网endpoint，免流量费
+  bucket: bigdata-prd
+  endpoint: oss-cn-beijing-internal.aliyuncs.com   # 同地域内网endpoint，免流量费
   bronze_prefix: bronze/                            # 原始数据前缀
   output_prefix: output/                            # 折线图/ZIP 前缀
 
