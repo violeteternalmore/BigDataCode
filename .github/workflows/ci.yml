@@ -1,16 +1,16 @@
-name: CI                       # 工作流名字，显示在 Actions 页
+name: CI/CD                    # 测试通过才部署，一个工作流搞定
 
-# 触发时机：推到 main、对 main 提 PR、或手动点都会跑
+# 触发时机：推到 main、对 main 提 PR、或手动点
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:           # 支持网页上手动触发
+  workflow_dispatch:
 
 jobs:
-  test:                        # 一个任务，名叫 test
-    runs-on: ubuntu-latest     # GitHub 提供的免费 Linux 跑测机
+  test:                        # ① 持续集成：装依赖 + 跑测试
+    runs-on: ubuntu-latest     # GitHub 免费 Linux 跑测机
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
@@ -26,3 +26,17 @@ jobs:
 
       - name: 跑单元测试
         run: pytest -q               # 连接/集成测试因无 .env 自动跳过
+
+  deploy:                      # ② 持续部署：仅在测试通过后、且是 push 时执行
+    needs: test                # ← 卡在 test 之后；test 挂了就跳过部署
+    if: github.event_name == 'push'   # ← PR 只测不部署
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH 进 ECS 部署最新代码
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: root
+          key:  ${{ secrets.ECS_SSH_KEY }}
+          # reset --hard 强制对齐远端，避免 git pull 冲突；.env 是 gitignored 不受影响
+          script: cd ~/price-index && git fetch --all && git reset --hard origin/main
