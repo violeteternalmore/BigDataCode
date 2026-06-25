@@ -1,0 +1,28 @@
+name: CI                       # 工作流名字，显示在 Actions 页
+
+# 触发时机：推到 main、对 main 提 PR、或手动点都会跑
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:           # 支持网页上手动触发
+
+jobs:
+  test:                        # 一个任务，名叫 test
+    runs-on: ubuntu-latest     # GitHub 提供的免费 Linux 跑测机
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python 3.10        # 与 ECS 上的版本一致
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip                  # 缓存 pip 下载，后续更快
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 跑单元测试
+        run: pytest -q               # 连接/集成测试因无 .env 自动跳过
