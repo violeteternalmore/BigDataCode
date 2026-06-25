@@ -18,8 +18,7 @@ price-index/
 ├── config/config.yaml   非敏感参数
 ├── sql/ddl.sql          ClickHouse 建表
 ├── tests/test_index.py  pytest 单元测试
-├── .env.example         复制为 .env 填密钥（.env 不入库）
-└── .github/workflows/daily.yml  每日调度
+└── .env.example         复制为 .env 填密钥（.env 不入库）
 ```
 
 ## 快速开始（在 ECS 上，项目根目录执行）
@@ -46,4 +45,5 @@ pytest -q
 - 必须从**项目根目录**运行（代码用相对路径读 `config/config.yaml`）。
 - 因为同比要「对去年同日」，**2026-05 之前的日期没有同比结果是正常的**。
 - 跑完记得**释放按量付费的 ECS** 省钱。
-- `n_products` 默认 300（跑得快）；想压测 ClickHouse 就调大到几万。
+- `n_products` 默认 20000（约 2250 万行、原始约 1.4 GB）；内存吃紧（如 2核4GB）可调小，想压测就调更大。
+- 索引计算按类目分批在 ClickHouse 内自连接聚合，内存可控；相关参数见 `config.yaml` 的 `clickhouse` 段。
