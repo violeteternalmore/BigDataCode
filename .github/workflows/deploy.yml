@@ -1,0 +1,16 @@
+name: Deploy
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH 进 ECS 拉取最新代码
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: root
+          key:  ${{ secrets.ECS_SSH_KEY }}
+          script: cd ~/price-index && git pull
