@@ -14,8 +14,7 @@ def plot_yoy():
     df = query_df("SELECT date, dimension, dimension_id, yoy_pct FROM index_result")
     df["date"] = pd.to_datetime(df["date"])
     df["bucket"] = df["date"].dt.to_period(FREQ).dt.to_timestamp()
-    g = (df.groupby(["dimension", "dimension_id", "bucket"])["yoy_pct"]
-           .mean().reset_index().dropna())
+    g = resample_yoy(df, FREQ)
 
     fig, ax = plt.subplots(figsize=(13, 6))
     overall = g[g["dimension"] == "overall"].sort_values("bucket")
@@ -40,3 +39,13 @@ def plot_yoy():
         z.writestr("index_result.csv", csv)
     upload_bytes(CFG["oss"]["output_prefix"] + "index_result.zip", zbuf.getvalue())
     print(f"图(粒度={FREQ})与ZIP已上传OSS")
+
+
+def resample_yoy(df, freq="W"):
+    """纯逻辑（不连外部）：把日度同比按freq(D/W/M)重采样取平均。
+    输入含data,dimension,dimension_id,yoy_pct的DataFrame,返回聚合后的DataFrame。"""
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    df["bucket"] = df["date"].dt.to_period(freq).dt.to_timestamp()
+    return (df.groupby(["dimension", "dimension_id", "bucket"])["yoy_pct"]
+            .mean().reset_index().dropna())
