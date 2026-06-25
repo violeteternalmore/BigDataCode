@@ -8,13 +8,25 @@ clickhouse:
   host: 127.0.0.1     # 在 ECS 本机跑就是 127.0.0.1
   port: 8123
   database: price
+  # 索引自连接的查询级调优（2核4GB 机器友好；CH 在本机与计算共享内存）
+  join_algorithm: partial_merge # 归并连接，内存占用低且会落盘(比 hash 省内存，广泛支持)
+  max_memory_usage: 1000000000  # 单查询内存上限1GB，低于剩余可用内存，超出报错而非拖垮整机
 
 data:
   start: "2025-05-01"
   end:   "2028-05-31"
-  n_products: 300     # 想压测就调大到几万
+  n_products: 20000   # ~22.5M 行、原始CSV约1.4GB（索引已下推CH聚合，2核4GB可跑）
   categories: [1101010001, 1101010002, 1101010003, 1101010004, 1101010005]
   seed: 42
+  price_noise_sd: 0.0008      # 各商品每日独立价格噪声(越小越平滑)
+  inflation:                  # 年化通胀曲线参数(同比折线由此决定)
+    center: 0.010             # 基线 ~1%
+    amp: 0.0055               # 正弦波动振幅(各类目在此上下略有分化)
+    period_days: 540          # 波动周期(天)，须 >365 否则被同比抵消
+    walk_sd: 0.0004           # 随机游走步长(纹理)
+    walk_reversion: 0.02      # 均值回归强度(越大越贴近基线)
+    annual_min: 0.0           # 年化下限
+    annual_max: 0.020         # 年化上限 2% → 同比绝不超 2%
 
 index:
   calculator: fisher      # fisher | jevons（无销量时降级）

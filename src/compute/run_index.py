@@ -5,11 +5,14 @@ from src.storage.ch_client import query_df, insert_df
 from src.compute.index import fisher
 
 CFG = yaml.safe_load(open("config/config.yaml", encoding="utf-8"))
+CATS = CFG["data"]["categories"]
 
 
 def _annual_fisher(panel):
-    """对某维度的 panel(含 date,sku_id,price,sales)，逐日算「本日 vs 去年同日」的费雪。
-    参照期被钉死成去年同期，所以无需固定基期，结果直接就是同比。"""
+    """【纯算法·参考实现，供单元测试在小样本上校验】
+    对某维度的 panel(含 date,sku_id,price,sales)，逐日算「本日 vs 去年同日」的费雪。
+    参照期被钉死成去年同期，所以无需固定基期，结果直接就是同比。
+    生产路径(run)在 ClickHouse 内用等价 SQL 完成同样的计算，以适配大数据量/小内存。"""
     panel = panel.copy()
     panel["date"] = pd.to_datetime(panel["date"])
     # 参照盘：把去年的日期 +1 年，对齐到「今年同日」，再按 (date,sku_id) join
@@ -25,31 +28,88 @@ def _annual_fisher(panel):
     return res
 
 
-def run():
-    panel = query_df("SELECT date, sku_id, category_id, price, sales FROM fact_price_daily")
-    results = []
+# ---- 生产路径：把算法下推到 ClickHouse，且「按类目分批」做自连接以压住内存 ----
+# 自连接右侧(去年盘)一次只装一个类目(~总量/类目数)，避免一次性 hash 整张表撑爆小内存机器。
+# 每批只回传每日的四个费雪分量和(拉氏/帕氏的分子分母)；分量可加，故全网=各类目按日相加。
+_SUMS = """
+    f1.date AS date,
+    sum(toFloat64(f1.price) * f0.q0)    AS l_num,
+    sum(f0.p0 * f0.q0)                  AS l_den,
+    sum(toFloat64(f1.price) * f1.sales) AS p_num,
+    sum(f0.p0 * f1.sales)               AS p_den
+"""
 
-    # 全网同比
-    s = _annual_fisher(panel)
-    s["dimension"] = "overall"
-    s["dimension_id"] = "ALL"
-    results.append(s)
+
+def _settings():
+    """把 ClickHouse 查询级设置(自连接算法/内存上限)拼成 SETTINGS 子句，便于小内存机器调优。"""
+    ch = CFG.get("clickhouse", {})
+    parts = []
+    if ch.get("join_algorithm"):
+        parts.append(f"join_algorithm = '{ch['join_algorithm']}'")
+    if ch.get("max_memory_usage"):
+        parts.append(f"max_memory_usage = {ch['max_memory_usage']}")
+    return ("SETTINGS " + ", ".join(parts)) if parts else ""
+
+
+def _category_sums(cat):
+    """单个类目的每日费雪分量和：今年盘 f1 与去年同日盘 f0 按 (sku_id,date) 配对。"""
+    return query_df(f"""
+        SELECT {_SUMS}
+        FROM (
+            SELECT sku_id, date, price, sales
+            FROM fact_price_daily WHERE category_id = {cat}
+        ) AS f1
+        INNER JOIN (
+            SELECT sku_id,
+                   date + INTERVAL 1 YEAR AS date,   -- 去年同日 -> 今年同日
+                   toFloat64(price) AS p0,
+                   sales AS q0
+            FROM fact_price_daily WHERE category_id = {cat}
+        ) AS f0 ON f1.sku_id = f0.sku_id AND f1.date = f0.date
+        GROUP BY f1.date
+        ORDER BY f1.date
+        {_settings()}
+    """)
+
+
+def _fisher_from_sums(df):
+    """由四个分量和合成费雪指数(×100)：Fisher = sqrt(L×P)×100。"""
+    L = df["l_num"] / df["l_den"]      # 拉氏：参照期销量权重
+    P = df["p_num"] / df["p_den"]      # 帕氏：当期销量权重
+    return (L * P) ** 0.5 * 100
+
+
+def run():
+    # 逐类目取分量和（每次自连接只涉及一个类目，内存可控）
+    parts = []
+    for c in CATS:
+        s = _category_sums(c)
+        if len(s):
+            s["category_id"] = c
+            parts.append(s)
+    allsums = pd.concat(parts, ignore_index=True)
 
     # 各类目同比
-    for cat, sub in panel.groupby("category_id"):
-        s = _annual_fisher(sub)
-        s["dimension"] = "category"
-        s["dimension_id"] = str(cat)
-        results.append(s)
+    cat = allsums.copy()
+    cat["index_value"] = _fisher_from_sums(cat)
+    cat["dimension"] = "category"
+    cat["dimension_id"] = cat["category_id"].astype(str)
 
-    res = pd.concat(results, ignore_index=True)
+    # 全网同比 = 各类目分量按日相加后再合成（费雪分量可加，结果与整体自连接完全一致）
+    ov = allsums.groupby("date", as_index=False)[["l_num", "l_den", "p_num", "p_den"]].sum()
+    ov["index_value"] = _fisher_from_sums(ov)
+    ov["dimension"] = "overall"
+    ov["dimension_id"] = "ALL"
+
+    res = pd.concat([ov, cat], ignore_index=True)
     res["index_type"] = "fisher_yoy"
+    res["yoy_pct"] = res["index_value"] - 100                     # 参照期=去年同期=100
     res["mom_pct"] = 0.0
     res["date"] = pd.to_datetime(res["date"]).dt.date
     res = res[["date", "dimension", "dimension_id", "index_type",
                "index_value", "yoy_pct", "mom_pct"]]
 
-    # 熔断：全网同比单日跳变 >50 个百分点视为污染，告警
+    # 熔断：全网同比单日跳变 >阈值 视为污染，告警
     chk = res[res["dimension"] == "overall"].sort_values("date")
     jump = chk["yoy_pct"].diff().abs().max()
     if pd.notna(jump) and jump > CFG["index"]["max_daily_change"] * 100:
