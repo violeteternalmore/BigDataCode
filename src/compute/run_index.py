@@ -28,7 +28,10 @@ def _annual_fisher(panel):
     return res
 
 
+<<<<<<< Updated upstream
 <<<<<<< HEAD
+=======
+>>>>>>> Stashed changes
 # ---- 生产路径：把算法下推到 ClickHouse，且「按类目分批」做自连接以压住内存 ----
 # 自连接右侧(去年盘)一次只装一个类目(~总量/类目数)，避免一次性 hash 整张表撑爆小内存机器。
 # 每批只回传每日的四个费雪分量和(拉氏/帕氏的分子分母)；分量可加，故全网=各类目按日相加。
@@ -40,6 +43,7 @@ _SUMS = """
     sum(f0.p0 * f1.sales)               AS p_den
 """
 
+<<<<<<< Updated upstream
 =======
 # ---- 生产路径：把上面的算法下推到 ClickHouse，避免把整张事实表搬进内存 ----
 # 子查询 f0 = 去年同日的价量(把日期 +1 年对齐到今年)，与今年 f1 按 (sku_id,date) 等值连接，
@@ -63,6 +67,8 @@ _JOIN = """
 """
 
 >>>>>>> bce5aa04c24cf566043b1f6a8113abf37905ca75
+=======
+>>>>>>> Stashed changes
 
 def _settings():
     """把 ClickHouse 查询级设置(自连接算法/内存上限)拼成 SETTINGS 子句，便于小内存机器调优。"""
@@ -75,7 +81,10 @@ def _settings():
     return ("SETTINGS " + ", ".join(parts)) if parts else ""
 
 
+<<<<<<< Updated upstream
 <<<<<<< HEAD
+=======
+>>>>>>> Stashed changes
 def _category_sums(cat):
     """单个类目的每日费雪分量和：今年盘 f1 与去年同日盘 f0 按 (sku_id,date) 配对。"""
     return query_df(f"""
@@ -91,19 +100,25 @@ def _category_sums(cat):
                    sales AS q0
             FROM fact_price_daily WHERE category_id = {cat}
         ) AS f0 ON f1.sku_id = f0.sku_id AND f1.date = f0.date
+<<<<<<< Updated upstream
 =======
 def _overall():
     return query_df(f"""
         SELECT f1.date AS date, {_FISHER} AS index_value
         {_JOIN}
 >>>>>>> bce5aa04c24cf566043b1f6a8113abf37905ca75
+=======
+>>>>>>> Stashed changes
         GROUP BY f1.date
         ORDER BY f1.date
         {_settings()}
     """)
 
 
+<<<<<<< Updated upstream
 <<<<<<< HEAD
+=======
+>>>>>>> Stashed changes
 def _fisher_from_sums(df):
     """由四个分量和合成费雪指数(×100)：Fisher = sqrt(L×P)×100。"""
     L = df["l_num"] / df["l_den"]      # 拉氏：参照期销量权重
@@ -133,6 +148,7 @@ def run():
     ov["dimension"] = "overall"
     ov["dimension_id"] = "ALL"
 
+<<<<<<< Updated upstream
 =======
 def _by_category():
     return query_df(f"""
@@ -157,6 +173,8 @@ def run():
     cat = cat.drop(columns="category_id")
 
 >>>>>>> bce5aa04c24cf566043b1f6a8113abf37905ca75
+=======
+>>>>>>> Stashed changes
     res = pd.concat([ov, cat], ignore_index=True)
     res["index_type"] = "fisher_yoy"
     res["yoy_pct"] = res["index_value"] - 100                     # 参照期=去年同期=100
