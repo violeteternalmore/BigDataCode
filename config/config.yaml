@@ -9,8 +9,13 @@ clickhouse:
   port: 8123
   database: price
   # 索引自连接的查询级调优（2核4GB 机器友好；CH 在本机与计算共享内存）
+<<<<<<< HEAD
   join_algorithm: partial_merge # 归并连接，内存占用低且会落盘(比 hash 省内存，广泛支持)
   max_memory_usage: 1000000000  # 单查询内存上限1GB，低于剩余可用内存，超出报错而非拖垮整机
+=======
+  join_algorithm: grace_hash   # 自连接算法，内存不够时落盘(老版本CH可改 partial_merge)
+  max_memory_usage: 2800000000 # 单查询内存上限~2.8GB，超出则报错而非拖垮整机
+>>>>>>> bce5aa04c24cf566043b1f6a8113abf37905ca75
 
 data:
   start: "2025-05-01"
