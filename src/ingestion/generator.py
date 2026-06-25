@@ -65,9 +65,8 @@ def generate_and_upload():
     price = rng.uniform(5, 200, size=n_prod)              # 当前价（跨月连续游走）
     base_sales = rng.uniform(50, 500, size=n_prod)
 
-    _, daily_rate = _category_daily_rates(rng)            # 各类目共享的通胀趋势
-    rate_lut = {c: pd.Series(r, index=pd.date_range(d["start"], d["end"], freq="D").date)
-                for c, r in daily_rate.items()}
+    days, daily_rate = _category_daily_rates(rng)         # 各类目共享的通胀趋势
+    rate_lut = {c: pd.Series(r, index=days.date) for c, r in daily_rate.items()}
 
     for per in _month_range():
         mdays = pd.date_range(per.start_time, per.end_time, freq="D")
