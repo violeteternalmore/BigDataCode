@@ -67,7 +67,7 @@ jobs:
           host: ${{ secrets.ECS_HOST }}
           username: root
           key:  ${{ secrets.ECS_SSH_KEY }}
-          command_timeout: 30m         # full/reset 生成数据+入库较久，放宽超时
+          command_timeout: 60m         # full/reset/import 在 2核4GB 上较久（~22.5M 行），放宽到 1 小时
           script: |
             set -e                                   # 任一步失败即中止，后续不再执行
             cd ~/price-index
