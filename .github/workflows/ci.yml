@@ -73,9 +73,10 @@ jobs:
             cd ~/price-index
             git fetch --all && git reset --hard origin/main
             # —— 环境准备（每个 mode 都先做，全幂等）——
-            systemctl start clickhouse-server                                  # 起 CH 服务（已起则无操作）
+            # 起 CH：兼容 systemd / sysv / 单二进制安装；已在运行则无操作。真正是否就绪由下面轮询判定。
+            ( systemctl start clickhouse-server || service clickhouse-server start || clickhouse start ) >/dev/null 2>&1 || true
             for i in $(seq 1 60); do clickhouse-client --query "SELECT 1" >/dev/null 2>&1 && break; sleep 1; done
-            clickhouse-client --query "SELECT 1" >/dev/null                    # 最终确认就绪，否则中止
+            clickhouse-client --query "SELECT 1" >/dev/null                    # 确认就绪，连不上则中止
             clickhouse-client --query "CREATE DATABASE IF NOT EXISTS price"    # 建库（幂等）
             clickhouse-client --database price --multiquery < sql/ddl.sql      # 建表（DDL 全是 IF NOT EXISTS，幂等）
             # —— 连接门禁：ECS 有 .env→真连 CH/OSS；连不上即中止 ——
