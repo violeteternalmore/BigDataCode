@@ -7,13 +7,20 @@ load_dotenv()
 CFG = yaml.safe_load(open("config/config.yaml", encoding="utf-8"))
 
 
+_client = None
+
+
 def client():
-    return clickhouse_connect.get_client(
-        host=CFG["clickhouse"]["host"],
-        port=CFG["clickhouse"]["port"],
-        database=CFG["clickhouse"]["database"],
-        password=os.environ.get("CH_PASSWORD", ""),
-    )
+    """复用单条连接：整条流水线几十次 insert/query 共用一个 client，省去反复 TCP 握手。"""
+    global _client
+    if _client is None:
+        _client = clickhouse_connect.get_client(
+            host=CFG["clickhouse"]["host"],
+            port=CFG["clickhouse"]["port"],
+            database=CFG["clickhouse"]["database"],
+            password=os.environ.get("CH_PASSWORD", ""),
+        )
+    return _client
 
 
 def insert_df(table, df):

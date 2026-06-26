@@ -21,6 +21,11 @@ def download_text(key: str) -> str:
     return _bucket().get_object(key).read().decode("utf-8")
 
 
+def download_bytes(key: str) -> bytes:
+    """读原始字节，交给 pandas 直接解析，免去 decode→re-encode 往返。"""
+    return _bucket().get_object(key).read()
+
+
 def list_keys(prefix: str):
     return [o.key for o in oss2.ObjectIterator(_bucket(), prefix=prefix)]
 
