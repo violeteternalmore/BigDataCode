@@ -1,4 +1,4 @@
-import io, zipfile
+import io, os, zipfile
 import matplotlib
 matplotlib.use("Agg")
 matplotlib.rcParams["font.sans-serif"] = ["DejaVu Sans"]
@@ -30,14 +30,25 @@ def plot_yoy():
     fig.autofmt_xdate(); fig.tight_layout()
 
     png = io.BytesIO(); fig.savefig(png, dpi=150, format="png")
-    upload_bytes(CFG["oss"]["output_prefix"] + "yoy.png", png.getvalue())
+    pngbytes = png.getvalue()
 
     csv = df.to_csv(index=False).encode("utf-8")
     zbuf = io.BytesIO()
     with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("index_result.csv", csv)
-    upload_bytes(CFG["oss"]["output_prefix"] + "index_result.zip", zbuf.getvalue())
-    print(f"图(粒度={FREQ})与ZIP已上传OSS")
+    zipbytes = zbuf.getvalue()
+
+    # 本地各存一份（供 CI 取回挂 Artifacts；.gitignore 已忽略 *.png/*.zip）
+    os.makedirs("output", exist_ok=True)
+    with open("output/yoy.png", "wb") as f:
+        f.write(pngbytes)
+    with open("output/index_result.zip", "wb") as f:
+        f.write(zipbytes)
+
+    # 同步上传 OSS
+    upload_bytes(CFG["oss"]["output_prefix"] + "yoy.png", pngbytes)
+    upload_bytes(CFG["oss"]["output_prefix"] + "index_result.zip", zipbytes)
+    print(f"图(粒度={FREQ})与ZIP已写 ./output/ 并上传 OSS")
 
 
 def resample_yoy(df, freq="W"):

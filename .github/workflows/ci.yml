@@ -1,12 +1,25 @@
-name: CI/CD                    # 测试通过才部署，一个工作流搞定
+name: CI/CD                    # 测试通过才部署/运行，一个工作流搞定
 
-# 触发时机：推到 main、对 main 提 PR、或手动点
+# 触发时机：
+#   push main      → 跑测试 + 仅部署代码并检测（deploy 档，轻量安全）
+#   PR  main       → 只跑测试，不部署
+#   手动 Run workflow → 选 mode：deploy/import/full/reset（见下）
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "运行模式"
+        type: choice
+        default: deploy
+        options: [ deploy, import, full, reset ]
+      confirm:
+        description: "仅 reset 需要：必须填 DELETE 才会删 OSS 数据并重建表"
+        type: string
+        default: ""
 
 jobs:
   test:                        # ① 持续集成：装依赖 + 跑测试
@@ -27,16 +40,63 @@ jobs:
       - name: 跑单元测试
         run: pytest -q               # 连接/集成测试因无 .env 自动跳过
 
-  deploy:                      # ② 持续部署：仅在测试通过后、且是 push 时执行
-    needs: test                # ← 卡在 test 之后；test 挂了就跳过部署
-    if: github.event_name == 'push'   # ← PR 只测不部署
+  run:                         # ② 部署 / 按模式在 ECS 上运行
+    needs: test                # ← 卡在 test 之后；test 挂了就跳过
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - name: SSH 进 ECS 部署最新代码
+      - name: 决定运行模式（push 一律 deploy；手动取所选）
+        id: m
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "mode=deploy" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: reset 安全闸（未确认则中止）
+        if: steps.m.outputs.mode == 'reset' && github.event.inputs.confirm != 'DELETE'
+        run: |
+          echo "::error::reset 会删除 OSS 数据并重建表；需在 confirm 输入框填 DELETE 才能执行。"
+          exit 1
+
+      # SSH 进 ECS：同步最新代码，再按模式跑（OSS/CH 密钥用 ECS 本机 .env，无需进 GitHub）
+      - name: SSH 进 ECS 部署并按模式运行
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.ECS_HOST }}
           username: root
           key:  ${{ secrets.ECS_SSH_KEY }}
-          # reset --hard 强制对齐远端，避免 git pull 冲突；.env 是 gitignored 不受影响
-          script: cd ~/price-index && git fetch --all && git reset --hard origin/main
+          command_timeout: 30m         # full/reset 生成数据+入库较久，放宽超时
+          script: |
+            set -e                                   # 任一步失败即中止，后续不再执行
+            cd ~/price-index
+            git fetch --all && git reset --hard origin/main
+            # —— 环境准备（每个 mode 都先做，全幂等）——
+            systemctl start clickhouse-server                                  # 起 CH 服务（已起则无操作）
+            for i in $(seq 1 60); do clickhouse-client --query "SELECT 1" >/dev/null 2>&1 && break; sleep 1; done
+            clickhouse-client --query "SELECT 1" >/dev/null                    # 最终确认就绪，否则中止
+            clickhouse-client --query "CREATE DATABASE IF NOT EXISTS price"    # 建库（幂等）
+            clickhouse-client --database price --multiquery < sql/ddl.sql      # 建表（DDL 全是 IF NOT EXISTS，幂等）
+            # —— 连接门禁：ECS 有 .env→真连 CH/OSS；连不上即中止 ——
+            pytest -q tests/test_connection.py
+            # —— 通过后才按模式跑业务 ——
+            python3 -m src.main ${{ steps.m.outputs.mode }}
+
+      # 出图模式(import/full/reset)：把 ECS 的 ./output/ 取回 runner
+      - name: 取回产物到 runner
+        if: success() && steps.m.outputs.mode != 'deploy'
+        run: |
+          mkdir -p artifacts
+          umask 077 && printf '%s\n' "${{ secrets.ECS_SSH_KEY }}" > key.pem
+          scp -o StrictHostKeyChecking=no -i key.pem -r \
+            root@${{ secrets.ECS_HOST }}:price-index/output/. artifacts/ || true
+          rm -f key.pem
+
+      - name: 挂到 Artifacts（运行页可直接下载）
+        if: success() && steps.m.outputs.mode != 'deploy'
+        uses: actions/upload-artifact@v4
+        with:
+          name: price-index-${{ steps.m.outputs.mode }}
+          path: artifacts/
+          if-no-files-found: warn

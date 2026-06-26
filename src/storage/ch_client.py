@@ -22,3 +22,8 @@ def insert_df(table, df):
 
 def query_df(sql):
     return client().query_df(sql)
+
+
+def command(sql):
+    """执行无结果集语句（TRUNCATE/DROP/CREATE 等）。"""
+    client().command(sql)
