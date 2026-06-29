@@ -8,7 +8,7 @@ from src.storage.ch_client import query_df
 from src.storage.oss_client import upload_bytes
 CFG = yaml.safe_load(open("config/config.yaml", encoding="utf-8"))
 
-FREQ = "W"   # 改这里：'D'=每日  'W'=每周（推荐，细节多又不杂乱）  'M'=每月（最平滑）
+FREQ = "D"   # 改这里：'D'=每日  'W'=每周（推荐，细节多又不杂乱）  'M'=每月（最平滑）
 
 def plot_yoy():
     df = query_df("SELECT date, dimension, dimension_id, yoy_pct FROM index_result")
